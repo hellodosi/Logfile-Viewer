@@ -1,0 +1,90 @@
+{
+    "log_rules": [
+        {
+            "name": "ERROR",
+            "fg": "white",
+            "bg": "red",
+            "aliases": [
+                "ERROR",
+                "ERR",
+                "FAILURE",
+                "FAILED",
+                "CRITICAL",
+                "FATAL",
+                "EXCEPTION",
+                "SEVERE"
+            ]
+        },
+        {
+            "name": "WARNING",
+            "fg": "black",
+            "bg": "orange",
+            "aliases": [
+                "WARNING",
+                "WARN",
+                "ATTENTION",
+                "CAUTION",
+                "VORSICHT"
+            ]
+        },
+        {
+            "name": "INFO",
+            "fg": "white",
+            "bg": "blue",
+            "aliases": [
+                "INFO",
+                "INFORMATION",
+                "LOG",
+                "MSG",
+                "MESSAGE",
+                "HINWEIS"
+            ]
+        },
+        {
+            "name": "SUCCESS",
+            "fg": "white",
+            "bg": "green",
+            "aliases": [
+                "SUCCESS",
+                "OK",
+                "DONE",
+                "COMPLETED",
+                "FINISHED",
+                "PASSED"
+            ]
+        },
+        {
+            "name": "DEBUG",
+            "fg": "#ffffff",
+            "bg": "gray",
+            "aliases": [
+                "DEBUG",
+                "TRACE",
+                "VERBOSE"
+            ]
+        }
+    ],
+    "filter_states": {
+        "ERROR": false,
+        "WARNING": false,
+        "INFO": false,
+        "SUCCESS": false,
+        "DEBUG": false
+    },
+    "scan_subdirs": true,
+    "auto_refresh_tree": true,
+    "sidebar_width": 219,
+    "current_scan_path": "Z:\\Python-Scripts\\Log-Viewer",
+    "allowed_extensions": [
+        ".log",
+        ".txt",
+        ""
+    ],
+    "active_extensions": [
+        ".log",
+        ""
+    ],
+    "sort_mode": "Datum (Neu zuerst)",
+    "language": "de",
+    "word_wrap": false
+}
