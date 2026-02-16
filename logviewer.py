@@ -12,6 +12,7 @@ except ImportError:
     ctypes = None
 
 class LogViewerApp:
+    APP_VERSION = "0.2.1"  # Manuell gepflegte Anwendungsversion
     SETTINGS_FILE = "log_viewer_settings.json"
     ICON_FILE = "icon.ico"
 
@@ -154,7 +155,7 @@ class LogViewerApp:
         # Einstellungen laden
         self.load_settings()
         
-        self.root.title(self.tr("title"))
+        self.root.title(f"{self.tr('title')} v{self.APP_VERSION}")
         self.root.geometry("1200x800")
         
         # Icon setzen
@@ -534,7 +535,7 @@ class LogViewerApp:
     def reset_to_app_path(self):
         self.current_scan_path = self.get_app_dir(); self.settings_modified = True; self.refresh_file_tree(); self.save_settings()
 
-    def show_info(self): messagebox.showinfo(self.tr("info"), f"{self.tr('title')}\n\n{self.tr('copyright')}")
+    def show_info(self): messagebox.showinfo(self.tr("info"), f"{self.tr('title')} v{self.APP_VERSION}\n\n{self.tr('copyright')}")
     def show_help(self): messagebox.showinfo(self.tr("help"), self.tr("help_text"))
 
     def refresh_file_tree(self):

@@ -1,19 +1,11 @@
-# GitHub Action: Automatische Versionierung, Kompilierung und Veröffentlichung
+# GitHub Action: Release bei Änderung der Versionsnummer in der Anwendung
 #
 # Dieser Workflow wird bei einem Push auf den 'main'-Branch ausgelöst.
-# 1. Job 'create-release':
-#    - Analysiert Commit-Nachrichten (feat:, fix:, etc.).
-#    - Bestimmt automatisch die neue Versionsnummer (z.B. v1.1.0).
-#    - Erstellt einen Git-Tag und einen GitHub Release-ENTWURF.
-# 2. Job 'build-and-upload':
-#    - Wartet auf die Erstellung des Releases.
-#    - Kompiliert die Anwendung für Windows.
-#    - Lädt die fertige .exe-Datei als ZIP zum erstellten Release hoch.
-# 3. Job 'publish-release':
-#    - Wartet auf den erfolgreichen Upload.
-#    - Veröffentlicht den Release-Entwurf.
-
-name: Automatic Release
+# 1. Job 'tag-release': Liest die Versionsnummer aus 'logviewer.py'.
+#    Wenn für diese Version noch kein Git-Tag existiert, wird er erstellt.
+# 2. Job 'build-and-release': Startet nur, wenn ein neuer Tag erstellt wurde.
+#    Kompiliert die Anwendung und veröffentlicht sie als GitHub Release.
+name: Release on Version Change
 
 on:
   push:
@@ -21,52 +13,48 @@ on:
       - main # oder master, je nach deinem Repository
 
 jobs:
-  # Job 1: Version bestimmen und Release erstellen
-  create-release:
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Erzwingt das Erstellen eines Entwurfs und andere Einstellungen via Umgebungsvariablen
-      GSR_DRAFT: "true"
-      GSR_FILES: "false"
-      GSR_PARSER: "conventional-commits"
-      GSR_CHANGELOG: "conventional-commits"
+  # Job 1: Version aus der Datei lesen und Git-Tag erstellen
+  tag-release:
+    name: Create Tag from Version
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # um Tags und Releases zu erstellen
-      issues: write   # optional, für Release-Notes
-      pull-requests: write # optional, für Release-Notes
     outputs:
-      # Gibt die Upload-URL und den Tag-Namen an den nächsten Job weiter
-      upload_url: ${{ steps.semantic.outputs.upload_url }}
-      tag_name: ${{ steps.semantic.outputs.tag }}
+      new_tag: ${{ steps.tag_version.outputs.new_tag }}
+      version: ${{ steps.get_version.outputs.version }}
 
     steps:
-      - name: 1. Code auschecken (mit gesamter Historie)
+      - name: 1. Code auschecken
         uses: actions/checkout@v4
+
+      - name: 2. Version aus logviewer.py auslesen
+        id: get_version
+        uses: mahesh-hegde/read-version-from-file-action@v1.1
         with:
-          fetch-depth: 0 # Notwendig für die Versionsanalyse
+          file-path: './logviewer.py'
+          # Sucht nach der Zeile: APP_VERSION = "1.2.3"
+          regex: 'APP_VERSION\s*=\s*"([^"]+)"'
 
-      - name: 2. Konfigurationsdateien löschen (Sicherheitsmaßnahme)
-        run: rm -f .github/releaserc.yml .releaserc.yml
+      - name: 3. Git-Tag erstellen (falls noch nicht vorhanden)
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Erstellt einen Tag im Format v1.2.3
+          custom_tag: v${{ steps.get_version.outputs.version }}
 
-      - name: 3. Automatische Versionierung und Release-Erstellung
-        id: semantic
-        uses: go-semantic-release/action@v1
-
-  # Job 2: Anwendung kompilieren und hochladen
-  build-and-upload:
-    # Startet erst, wenn 'create-release' erfolgreich war und ein neues Release erstellt wurde
-    needs: create-release
-    if: needs.create-release.outputs.tag_name != ''
-    runs-on: windows-latest # Notwendig, da eine Windows .exe erstellt wird
+  # Job 2: Anwendung kompilieren und veröffentlichen
+  build-and-release:
+    name: Build and Publish Release
+    needs: tag-release
+    if: needs.tag-release.outputs.new_tag # Startet nur, wenn Job 1 einen neuen Tag erstellt hat
+    runs-on: windows-latest
     permissions:
-      contents: write # Erforderlich, um das Artefakt zum Release hochladen zu können
+      contents: write # Erforderlich, um ein Release zu erstellen
 
     steps:
       - name: 1. Code für das neue Tag auschecken
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.create-release.outputs.tag_name }}
+          ref: ${{ needs.tag-release.outputs.new_tag }}
 
       - name: 2. Python-Umgebung einrichten
         uses: actions/setup-python@v5
@@ -83,29 +71,16 @@ jobs:
         id: prepare-artifact
         shell: pwsh
         run: |
-          $tagName = "${{ needs.create-release.outputs.tag_name }}"
-          $zipPath = "Logfile-Viewer-portable-$tagName.zip"
+          $version = "${{ needs.tag-release.outputs.version }}"
+          $zipPath = "Logfile-Viewer-portable-v$version.zip"
           Compress-Archive -Path dist/Logfile-Viewer.exe -DestinationPath $zipPath
           echo "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: 6. Artefakt zum GitHub Release hochladen
+      - name: 6. GitHub Release erstellen und Artefakt hochladen
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Uploading asset '${{ steps.prepare-artifact.outputs.zip_path }}' to tag '${{ needs.create-release.outputs.tag_name }}'"
-          gh release upload ${{ needs.create-release.outputs.tag_name }} ${{ steps.prepare-artifact.outputs.zip_path }}
-
-  # Job 3: Release veröffentlichen
-  publish-release:
-    name: Publish Release
-    runs-on: ubuntu-latest
-    # Läuft erst, nachdem der Build-Job erfolgreich war
-    needs: [create-release, build-and-upload]
-    if: success() && needs.create-release.outputs.tag_name != ''
-    permissions:
-      contents: write # Benötigt, um den Release-Status zu ändern
-    steps:
-      - name: Release als "Published" markieren
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit ${{ needs.create-release.outputs.tag_name }} --draft=false
+        run: >
+          gh release create ${{ needs.tag-release.outputs.new_tag }}
+          --title "Logfile-Viewer v${{ needs.tag-release.outputs.version }}"
+          --notes "Release der Version v${{ needs.tag-release.outputs.version }}."
+          ${{ steps.prepare-artifact.outputs.zip_path }}
