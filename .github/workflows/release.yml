@@ -23,6 +23,13 @@ on:
 jobs:
   # Job 1: Version bestimmen und Release erstellen
   create-release:
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Erzwingt das Erstellen eines Entwurfs und andere Einstellungen via Umgebungsvariablen
+      GSR_DRAFT: "true"
+      GSR_FILES: "false"
+      GSR_PARSER: "conventional-commits"
+      GSR_CHANGELOG: "conventional-commits"
     runs-on: ubuntu-latest
     permissions:
       contents: write # um Tags und Releases zu erstellen
@@ -39,16 +46,12 @@ jobs:
         with:
           fetch-depth: 0 # Notwendig für die Versionsanalyse
 
-      - name: 2. Automatische Versionierung und Release-Erstellung
+      - name: 2. Konfigurationsdateien löschen (Sicherheitsmaßnahme)
+        run: rm -f .github/releaserc.yml .releaserc.yml
+
+      - name: 3. Automatische Versionierung und Release-Erstellung
         id: semantic
         uses: go-semantic-release/action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Erzwingt das Erstellen eines Entwurfs und andere Einstellungen via Umgebungsvariablen
-          GSR_DRAFT: "true"
-          GSR_FILES: "false"
-          GSR_PARSER: "conventional-commits"
-          GSR_CHANGELOG: "conventional-commits"
 
   # Job 2: Anwendung kompilieren und hochladen
   build-and-upload:
@@ -88,7 +91,9 @@ jobs:
       - name: 6. Artefakt zum GitHub Release hochladen
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ needs.create-release.outputs.tag_name }} ${{ steps.prepare-artifact.outputs.zip_path }}
+        run: |
+          echo "Uploading asset '${{ steps.prepare-artifact.outputs.zip_path }}' to tag '${{ needs.create-release.outputs.tag_name }}'"
+          gh release upload ${{ needs.create-release.outputs.tag_name }} ${{ steps.prepare-artifact.outputs.zip_path }}
 
   # Job 3: Release veröffentlichen
   publish-release:
