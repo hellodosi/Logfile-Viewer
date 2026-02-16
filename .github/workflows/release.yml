@@ -49,6 +49,8 @@ jobs:
     needs: create-release
     if: needs.create-release.outputs.tag_name != ''
     runs-on: windows-latest # Notwendig, da eine Windows .exe erstellt wird
+    permissions:
+      contents: write # Erforderlich, um das Artefakt zum Release hochladen zu können
 
     steps:
       - name: 1. Code für das neue Tag auschecken
