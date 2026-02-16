@@ -15,7 +15,7 @@ except ImportError:
     ctypes = None
 
 class LogViewerApp:
-    APP_VERSION = "0.2.1"  # Manuell gepflegte Anwendungsversion
+    APP_VERSION = "0.3.0"  # Manuell gepflegte Anwendungsversion
     SETTINGS_FILE = "log_viewer_settings.json"
     ICON_FILE = "icon.ico"
 
