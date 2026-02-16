@@ -70,7 +70,8 @@ jobs:
 
       - name: 5. Pfad zum Release-Artefakt bestimmen
         id: prepare-artifact
-        run: echo "asset_path=dist/Logfile-Viewer.exe" >> $GITHUB_OUTPUT
+        shell: pwsh
+        run: echo "asset_path=dist/Logfile-Viewer.exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: 6. GitHub Release erstellen und Artefakt hochladen
         env:
