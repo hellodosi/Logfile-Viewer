@@ -4,11 +4,14 @@
 # 1. Job 'create-release':
 #    - Analysiert Commit-Nachrichten (feat:, fix:, etc.).
 #    - Bestimmt automatisch die neue Versionsnummer (z.B. v1.1.0).
-#    - Erstellt einen Git-Tag und ein GitHub-Release mit generierten Release-Notes.
+#    - Erstellt einen Git-Tag und einen GitHub Release-ENTWURF.
 # 2. Job 'build-and-upload':
 #    - Wartet auf die Erstellung des Releases.
 #    - Kompiliert die Anwendung für Windows.
 #    - Lädt die fertige .exe-Datei als ZIP zum erstellten Release hoch.
+# 3. Job 'publish-release':
+#    - Wartet auf den erfolgreichen Upload.
+#    - Veröffentlicht den Release-Entwurf.
 
 name: Automatic Release
 
@@ -39,9 +42,13 @@ jobs:
       - name: 2. Automatische Versionierung und Release-Erstellung
         id: semantic
         uses: go-semantic-release/action@v1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: .github/releaserc.yml # Pfad zur Konfigurationsdatei
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Erzwingt das Erstellen eines Entwurfs und andere Einstellungen via Umgebungsvariablen
+          GSR_DRAFT: "true"
+          GSR_FILES: "false"
+          GSR_PARSER: "conventional-commits"
+          GSR_CHANGELOG: "conventional-commits"
 
   # Job 2: Anwendung kompilieren und hochladen
   build-and-upload:
@@ -82,3 +89,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload ${{ needs.create-release.outputs.tag_name }} ${{ steps.prepare-artifact.outputs.zip_path }}
+
+  # Job 3: Release veröffentlichen
+  publish-release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    # Läuft erst, nachdem der Build-Job erfolgreich war
+    needs: [create-release, build-and-upload]
+    if: success() && needs.create-release.outputs.tag_name != ''
+    permissions:
+      contents: write # Benötigt, um den Release-Status zu ändern
+    steps:
+      - name: Release als "Published" markieren
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit ${{ needs.create-release.outputs.tag_name }} --draft=false
