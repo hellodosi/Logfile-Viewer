@@ -1,0 +1,84 @@
+# GitHub Action: Automatische Versionierung, Kompilierung und Veröffentlichung
+#
+# Dieser Workflow wird bei einem Push auf den 'main'-Branch ausgelöst.
+# 1. Job 'create-release':
+#    - Analysiert Commit-Nachrichten (feat:, fix:, etc.).
+#    - Bestimmt automatisch die neue Versionsnummer (z.B. v1.1.0).
+#    - Erstellt einen Git-Tag und ein GitHub-Release mit generierten Release-Notes.
+# 2. Job 'build-and-upload':
+#    - Wartet auf die Erstellung des Releases.
+#    - Kompiliert die Anwendung für Windows.
+#    - Lädt die fertige .exe-Datei als ZIP zum erstellten Release hoch.
+
+name: Automatic Release
+
+on:
+  push:
+    branches:
+      - main # oder master, je nach deinem Repository
+
+jobs:
+  # Job 1: Version bestimmen und Release erstellen
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # um Tags und Releases zu erstellen
+      issues: write   # optional, für Release-Notes
+      pull-requests: write # optional, für Release-Notes
+    outputs:
+      # Gibt die Upload-URL und den Tag-Namen an den nächsten Job weiter
+      upload_url: ${{ steps.semantic.outputs.upload_url }}
+      tag_name: ${{ steps.semantic.outputs.tag }}
+
+    steps:
+      - name: 1. Code auschecken (mit gesamter Historie)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Notwendig für die Versionsanalyse
+
+      - name: 2. Automatische Versionierung und Release-Erstellung
+        id: semantic
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Job 2: Anwendung kompilieren und hochladen
+  build-and-upload:
+    # Startet erst, wenn 'create-release' erfolgreich war und ein neues Release erstellt wurde
+    needs: create-release
+    if: needs.create-release.outputs.tag_name != ''
+    runs-on: windows-latest # Notwendig, da eine Windows .exe erstellt wird
+
+    steps:
+      - name: 1. Code für das neue Tag auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-release.outputs.tag_name }}
+
+      - name: 2. Python-Umgebung einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 3. Abhängigkeiten installieren
+        run: pip install -r requirements.txt
+
+      - name: 4. Anwendung mit PyInstaller kompilieren
+        run: pyinstaller --name "Logfile-Viewer" --onefile --windowed --icon="icon.ico" "logviewer.py"
+
+      - name: 5. Release-Artefakt vorbereiten (ZIP)
+        id: prepare-artifact
+        shell: pwsh
+        run: |
+          $tagName = "${{ needs.create-release.outputs.tag_name }}"
+          $zipPath = "Logfile-Viewer-portable-$tagName.zip"
+          Compress-Archive -Path dist/Logfile-Viewer.exe -DestinationPath $zipPath
+          echo "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: 6. Artefakt zum GitHub Release hochladen
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ${{ steps.prepare-artifact.outputs.zip_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
