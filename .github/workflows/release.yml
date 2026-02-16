@@ -17,6 +17,8 @@ jobs:
   tag-release:
     name: Create Tag from Version
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Erforderlich, um einen Git-Tag erstellen und pushen zu können
     outputs:
       new_tag: ${{ steps.tag_version.outputs.new_tag }}
       version: ${{ steps.get_version.outputs.version }}
