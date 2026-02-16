@@ -27,11 +27,9 @@ jobs:
 
       - name: 2. Version aus logviewer.py auslesen
         id: get_version
-        uses: mahesh-hegde/read-version-from-file-action@v1.1
-        with:
-          file-path: './logviewer.py'
-          # Sucht nach der Zeile: APP_VERSION = "1.2.3"
-          regex: 'APP_VERSION\s*=\s*"([^"]+)"'
+        run: |
+          VERSION=$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' logviewer.py)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: 3. Git-Tag erstellen (falls noch nicht vorhanden)
         id: tag_version
