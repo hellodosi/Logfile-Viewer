@@ -4,6 +4,9 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog, colorchooser
 import locale
 import sys
+import urllib.request
+import webbrowser
+import threading
 
 # Für das Taskleisten-Icon unter Windows
 try:
@@ -68,7 +71,15 @@ class LogViewerApp:
                 "delete_confirm": "Regel wirklich löschen?",
                 "no_ext_warn": "Die Option '(keine Endung)' ist ein fester Bestandteil und kann nicht gelöscht werden.",
                 "copyright": "Copyright © Dominik Scharrer",
-                "help_text": "Bedienung:\n\n1. Baumansicht: Filtert und sortiert Logdateien.\n2. Einstellungen: Verwalten Sie Dateiendungen und farbliche Regeln.\n3. Priorität: Obere Regeln in der Liste haben Vorrang.\n4. Live View: Echtzeit-Analyse mit manuellem Scroll-Stopp.\n5. Auto-Scroll: Pausiert automatisch beim Hochscrollen."
+                "help_text": "Bedienung:\n\n1. Baumansicht: Filtert und sortiert Logdateien.\n2. Einstellungen: Verwalten Sie Dateiendungen und farbliche Regeln.\n3. Priorität: Obere Regeln in der Liste haben Vorrang.\n4. Live View: Echtzeit-Analyse mit manuellem Scroll-Stopp.\n5. Auto-Scroll: Pausiert automatisch beim Hochscrollen.",
+                "update_title": "Update verfügbar",
+                "update_available": "Eine neue Version ({version}) ist verfügbar!\n\nMöchten Sie die Download-Seite öffnen?",
+                "check_for_updates": "Auf Updates prüfen...",
+                "no_update_title": "Kein Update",
+                "no_update_available": "Sie verwenden bereits die aktuellste Version.",
+                "update_check_failed": "Die Update-Prüfung ist fehlgeschlagen.\nBitte prüfen Sie Ihre Internetverbindung.",
+                "tab_updates": "Updates",
+                "check_updates_on_startup": "Beim Start automatisch auf Updates prüfen"
             },
             "en": {
                 "title": "Log Viewer",
@@ -117,7 +128,15 @@ class LogViewerApp:
                 "delete_confirm": "Delete this rule?",
                 "no_ext_warn": "The option '(no extension)' is a permanent feature and cannot be deleted.",
                 "copyright": "Copyright © Dominik Scharrer",
-                "help_text": "Operation:\n\n1. Tree View: Filter and sort log files.\n2. Settings: Manage extensions and color rules.\n3. Priority: Rules at the top of the list take precedence.\n4. Live View: Real-time analysis with manual scroll stop.\n5. Auto-Scroll: Pauses automatically when scrolling up."
+                "help_text": "Operation:\n\n1. Tree View: Filter and sort log files.\n2. Settings: Manage extensions and color rules.\n3. Priority: Rules at the top of the list take precedence.\n4. Live View: Real-time analysis with manual scroll stop.\n5. Auto-Scroll: Pauses automatically when scrolling up.",
+                "update_title": "Update Available",
+                "update_available": "A new version ({version}) is available!\nDo you want to open the download page?",
+                "check_for_updates": "Check for Updates...",
+                "no_update_title": "No Update",
+                "no_update_available": "You are already using the latest version.",
+                "update_check_failed": "The update check failed.\nPlease check your internet connection.",
+                "tab_updates": "Updates",
+                "check_updates_on_startup": "Automatically check for updates on startup"
             }
         }
 
@@ -165,8 +184,10 @@ class LogViewerApp:
         self.setup_ui()
         self.refresh_file_tree()
         
-        self.check_for_updates()
+        self.check_for_file_updates()
         self.check_for_tree_updates()
+        if self.check_updates_on_startup_var.get():
+            self.check_for_new_release()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -214,47 +235,31 @@ class LogViewerApp:
             "active_extensions": [".log", ".txt", ""],
             "sort_mode": "Name (A-Z)",
             "language": self.lang,
-            "word_wrap": False
+            "word_wrap": False,
+            "check_for_updates_on_startup": True
         }
 
         settings_path = os.path.join(app_dir, self.SETTINGS_FILE)
+        loaded_data = {}
         if os.path.exists(settings_path):
             try:
                 with open(settings_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    self.log_rules = data.get("log_rules", defaults["log_rules"])
-                    saved_filters = data.get("filter_states", {})
-                    self.scan_subdirs = tk.BooleanVar(value=data.get("scan_subdirs", True))
-                    self.auto_refresh_tree = tk.BooleanVar(value=data.get("auto_refresh_tree", True))
-                    self.sidebar_width = data.get("sidebar_width", 300)
-                    self.current_scan_path = data.get("current_scan_path", app_dir)
-                    self.allowed_extensions = data.get("allowed_extensions", defaults["allowed_extensions"])
-                    self.active_extensions = data.get("active_extensions", defaults["active_extensions"])
-                    self.sort_var.set(data.get("sort_mode", "Name (A-Z)"))
-                    self.lang = data.get("language", self.lang)
-                    self.word_wrap_active.set(data.get("word_wrap", defaults["word_wrap"]))
-            except Exception:
-                self.log_rules = defaults["log_rules"]
-                saved_filters = {}
-                self.scan_subdirs = tk.BooleanVar(value=True)
-                self.auto_refresh_tree = tk.BooleanVar(value=True)
-                self.sidebar_width = 300
-                self.current_scan_path = app_dir
-                self.allowed_extensions = defaults["allowed_extensions"]
-                self.active_extensions = defaults["active_extensions"]
-                self.sort_var.set("Name (A-Z)")
-                self.word_wrap_active.set(defaults["word_wrap"])
-        else:
-            self.log_rules = defaults["log_rules"]
-            saved_filters = {}
-            self.scan_subdirs = tk.BooleanVar(value=True)
-            self.auto_refresh_tree = tk.BooleanVar(value=True)
-            self.sidebar_width = 300
-            self.current_scan_path = app_dir
-            self.allowed_extensions = defaults["allowed_extensions"]
-            self.active_extensions = defaults["active_extensions"]
-            self.sort_var.set("Name (A-Z)")
-            self.word_wrap_active.set(defaults["word_wrap"])
+                    loaded_data = json.load(f)
+            except Exception: # Bei korrupter Datei werden Defaults verwendet
+                pass
+
+        self.log_rules = loaded_data.get("log_rules", defaults["log_rules"])
+        saved_filters = loaded_data.get("filter_states", {})
+        self.scan_subdirs = tk.BooleanVar(value=loaded_data.get("scan_subdirs", defaults["scan_subdirs"]))
+        self.auto_refresh_tree = tk.BooleanVar(value=loaded_data.get("auto_refresh_tree", defaults["auto_refresh_tree"]))
+        self.sidebar_width = loaded_data.get("sidebar_width", defaults["sidebar_width"])
+        self.current_scan_path = loaded_data.get("current_scan_path", defaults["current_scan_path"])
+        self.allowed_extensions = loaded_data.get("allowed_extensions", defaults["allowed_extensions"])
+        self.active_extensions = loaded_data.get("active_extensions", defaults["active_extensions"])
+        self.sort_var.set(loaded_data.get("sort_mode", defaults["sort_mode"]))
+        self.lang = loaded_data.get("language", defaults["language"])
+        self.word_wrap_active.set(loaded_data.get("word_wrap", defaults["word_wrap"]))
+        self.check_updates_on_startup_var = tk.BooleanVar(value=loaded_data.get("check_for_updates_on_startup", defaults["check_for_updates_on_startup"]))
 
         if "" not in self.allowed_extensions:
             self.allowed_extensions.append("")
@@ -286,7 +291,8 @@ class LogViewerApp:
             "active_extensions": [ext for ext, var in self.ext_vars.items() if var.get()],
             "sort_mode": self.sort_var.get(),
             "language": self.lang,
-            "word_wrap": self.word_wrap_active.get()
+            "word_wrap": self.word_wrap_active.get(),
+            "check_for_updates_on_startup": self.check_updates_on_startup_var.get()
         }
         try:
             settings_path = os.path.join(self.get_app_dir(), self.SETTINGS_FILE)
@@ -313,6 +319,8 @@ class LogViewerApp:
         self.menubar.add_cascade(label=self.tr("file"), menu=self.file_menu)
         self.help_menu = tk.Menu(self.menubar, tearoff=0)
         self.help_menu.add_command(label=self.tr("help"), command=self.show_help)
+        self.help_menu.add_command(label=self.tr("check_for_updates"), command=lambda: self.check_for_new_release(manual_check=True))
+        self.help_menu.add_separator()
         self.help_menu.add_command(label=self.tr("info"), command=self.show_info)
         self.menubar.add_cascade(label=self.tr("help"), menu=self.help_menu)
         self.root.config(menu=self.menubar)
@@ -435,13 +443,22 @@ class LogViewerApp:
         rules_tab = ttk.Frame(nb); nb.add(rules_tab, text=self.tr("tab_highlights"))
         rules_frame = ttk.Frame(rules_tab, padding=10); rules_frame.pack(fill=tk.BOTH, expand=True)
         self.rules_listbox = tk.Listbox(rules_frame, font=("Segoe UI", 10)); self.rules_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
         for r in self.log_rules: self.rules_listbox.insert(tk.END, r["name"])
+        
         btn_list_frame = ttk.Frame(rules_frame); btn_list_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         ttk.Button(btn_list_frame, text="↑", width=3, command=lambda: self.move_rule(-1)).pack(pady=2)
         ttk.Button(btn_list_frame, text="↓", width=3, command=lambda: self.move_rule(1)).pack(pady=2)
         ttk.Button(btn_list_frame, text=self.tr("new"), command=lambda: self.open_rule_editor(settings_win)).pack(pady=10)
         ttk.Button(btn_list_frame, text=self.tr("edit"), command=lambda: self.open_rule_editor(settings_win, True)).pack(pady=2)
         ttk.Button(btn_list_frame, text=self.tr("delete"), command=self.delete_rule).pack(pady=2)
+        
+        # Tab 3: Updates
+        updates_tab = ttk.Frame(nb); nb.add(updates_tab, text=self.tr("tab_updates"))
+        update_frame = ttk.LabelFrame(updates_tab, text=self.tr("tab_updates"), padding=10); update_frame.pack(fill=tk.X, padx=10, pady=5)
+        ttk.Checkbutton(update_frame, text=self.tr("check_updates_on_startup"), variable=self.check_updates_on_startup_var).pack(anchor="w", pady=(0, 10))
+        ttk.Button(update_frame, text=self.tr("check_for_updates"), command=lambda: self.check_for_new_release(manual_check=True)).pack(anchor="w")
+        
         footer = ttk.Frame(settings_win, padding=10); footer.pack(fill=tk.X)
         def save_and_close(): self.settings_modified = True; self.save_settings(); settings_win.destroy()
         ttk.Button(footer, text=self.tr("save_close"), command=save_and_close).pack(side=tk.RIGHT)
@@ -613,14 +630,54 @@ class LogViewerApp:
         except Exception as e:
             if not scroll_to_end: messagebox.showerror(self.tr("error"), str(e))
 
-    def check_for_updates(self):
+    def check_for_file_updates(self):
         if self.current_file and self.live_view_active.get():
             try:
                 m = os.path.getmtime(self.current_file)
                 if m > self.last_mtime:
                     self.last_mtime = m; self.load_file(self.current_file, True)
             except OSError: pass
-        self.root.after(500, self.check_for_updates)
+        self.root.after(500, self.check_for_file_updates)
+
+    def check_for_new_release(self, manual_check=False):
+        """Starts a background thread to check for a new release on GitHub."""
+        thread = threading.Thread(target=self._perform_update_check, args=(manual_check,), daemon=True)
+        thread.start()
+
+    def _is_newer_version(self, remote_version_str, local_version_str):
+        """Compares two version strings (e.g., '1.0.0' vs '0.2.1')."""
+        try:
+            remote_parts = [int(p) for p in remote_version_str.split('.')]
+            local_parts = [int(p) for p in local_version_str.split('.')]
+            max_len = max(len(remote_parts), len(local_parts))
+            remote_parts.extend([0] * (max_len - len(remote_parts)))
+            local_parts.extend([0] * (max_len - len(local_parts)))
+            return remote_parts > local_parts
+        except (ValueError, IndexError):
+            return False
+
+    def _perform_update_check(self, manual_check=False):
+        """Performs the actual network request and version comparison."""
+        API_URL = "https://api.github.com/repos/hellodosi/Logfile-Viewer/releases/latest"
+        try:
+            with urllib.request.urlopen(API_URL, timeout=5) as response:
+                if response.status == 200:
+                    data = json.load(response)
+                    latest_version_tag = data.get("tag_name", "v0.0.0")
+                    release_url = data.get("html_url")
+                    latest_version = latest_version_tag.lstrip('v')
+                    if self._is_newer_version(latest_version, self.APP_VERSION):
+                        message = self.tr("update_available").format(version=latest_version)
+                        if messagebox.askyesno(self.tr("update_title"), message):
+                            webbrowser.open_new_tab(release_url)
+                    elif manual_check:
+                        messagebox.showinfo(self.tr("no_update_title"), self.tr("no_update_available"))
+        except Exception as e:
+            # Bei manueller Prüfung eine Fehlermeldung anzeigen, ansonsten still ignorieren.
+            if manual_check:
+                messagebox.showerror(self.tr("error"), self.tr("update_check_failed"))
+            else:
+                pass # Automatische Prüfung wird still ignoriert
 
     def check_for_tree_updates(self):
         if self.auto_refresh_tree.get(): self.refresh_file_tree()

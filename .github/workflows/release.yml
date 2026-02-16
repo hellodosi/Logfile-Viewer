@@ -38,6 +38,7 @@ jobs:
         uses: mathieudutour/github-tag-action@v6.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          tag_prefix: '' # Verhindert, dass die Action ein eigenes "v" voranstellt
           # Erstellt einen Tag im Format v1.2.3
           custom_tag: v${{ steps.get_version.outputs.version }}
 
@@ -67,14 +68,9 @@ jobs:
       - name: 4. Anwendung mit PyInstaller kompilieren
         run: pyinstaller --name "Logfile-Viewer" --onefile --windowed --icon="icon.ico" --add-data "icon.ico;." "logviewer.py"
 
-      - name: 5. Release-Artefakt vorbereiten (ZIP)
+      - name: 5. Pfad zum Release-Artefakt bestimmen
         id: prepare-artifact
-        shell: pwsh
-        run: |
-          $version = "${{ needs.tag-release.outputs.version }}"
-          $zipPath = "Logfile-Viewer-portable-v$version.zip"
-          Compress-Archive -Path dist/Logfile-Viewer.exe -DestinationPath $zipPath
-          echo "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        run: echo "asset_path=dist/Logfile-Viewer.exe" >> $GITHUB_OUTPUT
 
       - name: 6. GitHub Release erstellen und Artefakt hochladen
         env:
@@ -82,5 +78,5 @@ jobs:
         run: >
           gh release create ${{ needs.tag-release.outputs.new_tag }}
           --title "Logfile-Viewer v${{ needs.tag-release.outputs.version }}"
-          --notes "Release der Version v${{ needs.tag-release.outputs.version }}."
-          ${{ steps.prepare-artifact.outputs.zip_path }}
+          --generate-notes
+          ${{ steps.prepare-artifact.outputs.asset_path }}
