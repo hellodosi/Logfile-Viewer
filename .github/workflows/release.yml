@@ -41,6 +41,7 @@ jobs:
         uses: go-semantic-release/action@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: .github/releaserc.yml # Pfad zur Konfigurationsdatei
 
   # Job 2: Anwendung kompilieren und hochladen
   build-and-upload:
@@ -64,7 +65,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: 4. Anwendung mit PyInstaller kompilieren
-        run: pyinstaller --name "Logfile-Viewer" --onefile --windowed --icon="icon.ico" "logviewer.py"
+        run: pyinstaller --name "Logfile-Viewer" --onefile --windowed --icon="icon.ico" --add-data "icon.ico;." "logviewer.py"
 
       - name: 5. Release-Artefakt vorbereiten (ZIP)
         id: prepare-artifact

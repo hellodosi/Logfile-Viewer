@@ -1,0 +1,14 @@
+# Konfiguration für go-semantic-release
+
+# Legt fest, dass nur Commits im "Conventional Commits"-Format (feat:, fix:, etc.)
+# ein Release auslösen und im Changelog erscheinen.
+parser: conventional-commits
+changelog: conventional-commits
+
+# Erstellt das Release als Entwurf (Draft).
+# Das ist wichtig, damit der nachfolgende Job die .exe-Datei hochladen kann.
+draft: true
+
+# Verhindert, dass der Quellcode automatisch als .zip und .tar.gz angehängt wird.
+# Wir wollen nur unsere selbst erstellte .zip-Datei anhängen.
+files: false
