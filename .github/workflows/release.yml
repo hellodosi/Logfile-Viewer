@@ -35,12 +35,21 @@ jobs:
 
       - name: 3. Git-Tag erstellen (falls noch nicht vorhanden)
         id: tag_version
-        uses: mathieudutour/github-tag-action@v6.1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          tag_prefix: '' # Verhindert, dass die Action ein eigenes "v" voranstellt
-          # Erstellt einen Tag im Format v1.2.3
-          custom_tag: v${{ steps.get_version.outputs.version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.get_version.outputs.version }}"
+          echo "Prüfe auf Tag: $TAG"
+          
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG"; then
+            echo "Tag $TAG existiert bereits. Es wird kein neues Release erstellt."
+            echo "new_tag=" >> $GITHUB_OUTPUT
+          else
+            echo "Tag $TAG existiert nicht. Erstelle und pushe neuen Tag."
+            git tag $TAG
+            git push origin $TAG
+            echo "new_tag=$TAG" >> $GITHUB_OUTPUT
+          fi
 
   # Job 2: Anwendung kompilieren und veröffentlichen
   build-and-release:
