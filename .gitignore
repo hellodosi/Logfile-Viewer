@@ -1,3 +1,4 @@
 log_viewer_settings.json
 dist/
 compile.bat
+gitignore/

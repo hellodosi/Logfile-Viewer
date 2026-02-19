@@ -7,6 +7,7 @@ import sys
 import urllib.request
 import webbrowser
 import threading
+from datetime import datetime
 
 # Für das Taskleisten-Icon unter Windows
 try:
@@ -15,7 +16,7 @@ except ImportError:
     ctypes = None
 
 class LogViewerApp:
-    APP_VERSION = "0.3.0"  # Manuell gepflegte Anwendungsversion
+    APP_VERSION = "0.4.0"  # Manuell gepflegte Anwendungsversion
     SETTINGS_FILE = "log_viewer_settings.json"
     ICON_FILE = "icon.ico"
 
@@ -49,6 +50,9 @@ class LogViewerApp:
                 "tab_general": "Allgemein",
                 "tab_highlights": "Hervorhebungen",
                 "path_structure": "Pfad & Struktur",
+                "size": "Größe",
+                "lines": "Zeilen",
+                "modified": "Geändert",
                 "scan_subdirs": "Unterverzeichnisse durchsuchen",
                 "auto_refresh": "Struktur automatisch aktualisieren",
                 "language": "Sprache:",
@@ -79,7 +83,24 @@ class LogViewerApp:
                 "no_update_available": "Sie verwenden bereits die aktuellste Version.",
                 "update_check_failed": "Die Update-Prüfung ist fehlgeschlagen.\nBitte prüfen Sie Ihre Internetverbindung.",
                 "tab_updates": "Updates",
-                "check_updates_on_startup": "Beim Start automatisch auf Updates prüfen"
+                "check_updates_on_startup": "Beim Start automatisch auf Updates prüfen",
+                "line": "Zeile",
+                "column": "Spalte",
+                "time_ago": "vor",
+                "second": "Sekunde",
+                "seconds": "Sekunden",
+                "minute": "Minute",
+                "minutes": "Minuten",
+                "hour": "Stunde",
+                "hours": "Stunden",
+                "day": "Tag",
+                "days": "Tagen",
+                "month": "Monat",
+                "months": "Monaten",
+                "year": "Jahr",
+                "years": "Jahren",
+                "manual": "ausgewählt",
+                "detected": "erkannt"
             },
             "en": {
                 "title": "Log Viewer",
@@ -106,6 +127,9 @@ class LogViewerApp:
                 "tab_general": "General",
                 "tab_highlights": "Highlights",
                 "path_structure": "Path & Structure",
+                "size": "Size",
+                "lines": "Lines",
+                "modified": "Modified",
                 "scan_subdirs": "Search subdirectories",
                 "auto_refresh": "Automatically refresh structure",
                 "language": "Language:",
@@ -136,7 +160,24 @@ class LogViewerApp:
                 "no_update_available": "You are already using the latest version.",
                 "update_check_failed": "The update check failed.\nPlease check your internet connection.",
                 "tab_updates": "Updates",
-                "check_updates_on_startup": "Automatically check for updates on startup"
+                "check_updates_on_startup": "Automatically check for updates on startup",
+                "line": "Line",
+                "column": "Column",
+                "time_ago": "ago",
+                "second": "second",
+                "seconds": "seconds",
+                "minute": "minute",
+                "minutes": "minutes",
+                "hour": "hour",
+                "hours": "hours",
+                "day": "day",
+                "days": "days",
+                "month": "month",
+                "months": "months",
+                "year": "year",
+                "years": "years",
+                "manual": "selected",
+                "detected": "detected"
             }
         }
 
@@ -157,6 +198,9 @@ class LogViewerApp:
         self.last_mtime = 0
         self.tree_structure_cache = None
         self.settings_modified = False
+        self.current_file_encoding = None
+        self.current_file_mtime = None
+        self.last_detected_encoding = None
 
         # Filter & Sortierung Variablen
         self.file_search_var = tk.StringVar()
@@ -188,6 +232,9 @@ class LogViewerApp:
         self.check_for_tree_updates()
         if self.check_updates_on_startup_var.get():
             self.check_for_new_release()
+
+        self.update_relative_time()
+        self.update_cursor_position_display()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -372,9 +419,80 @@ class LogViewerApp:
         self.text_area.tag_configure("search_match", background="yellow", foreground="black")
         self.text_area.bind("<MouseWheel>", self.detect_manual_scroll)
         self.text_area.bind("<Button-4>", self.detect_manual_scroll); self.text_area.bind("<Button-5>", self.detect_manual_scroll)
+        self.text_area.bind("<KeyRelease>", self.update_cursor_position_display)
+        self.text_area.bind("<ButtonRelease-1>", self.update_cursor_position_display)
+        self.text_area.bind("<FocusIn>", self.update_cursor_position_display)
+        self.text_area.bind("<FocusOut>", self.clear_cursor_position_display)
+
+        # Statusleiste
+        self.status_bar = ttk.Frame(self.main_frame, padding=2, relief="sunken")
+        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # Widgets erstellen, aber nicht packen. Das macht update_status_bar.
+        self.status_mtime_label = ttk.Label(self.status_bar, text="", anchor="e")
+        self.mtime_sep = ttk.Separator(self.status_bar, orient=tk.VERTICAL)
+        self.status_cursor_label = ttk.Label(self.status_bar, text="", anchor="e")
+        self.cursor_sep = ttk.Separator(self.status_bar, orient=tk.VERTICAL)
+        self.status_lines_label = ttk.Label(self.status_bar, text="", anchor="e")
+        self.lines_sep = ttk.Separator(self.status_bar, orient=tk.VERTICAL)
+        self.status_size_label = ttk.Label(self.status_bar, text="", anchor="e")
+        self.size_sep = ttk.Separator(self.status_bar, orient=tk.VERTICAL)
+        self.encoding_menubutton = ttk.Menubutton(self.status_bar, text="", style="Toolbutton", direction="above")
+        self.encoding_menu = tk.Menu(self.encoding_menubutton, tearoff=0)
+        self.encoding_menubutton["menu"] = self.encoding_menu
+        self.build_encoding_menu()
+
+        # Initialen Status der Statusleiste setzen
+        self.update_status_bar()
 
     def on_sort_change(self, _):
         self.settings_modified = True; self.refresh_file_tree()
+
+    def build_encoding_menu(self):
+        self.encoding_menu.delete(0, tk.END)
+        # Liste gängiger Encodings
+        # Enthält die von Windows Notepad bekannten Formate sowie weitere Standards.
+        encodings_to_offer = [
+            'utf-8',       # Standard ohne BOM
+            'utf-8-sig',   # UTF-8 mit BOM
+            'utf-16-le',   # UTF-16 Little Endian (Windows Standard)
+            'utf-16-be',   # UTF-16 Big Endian
+            'cp1252',      # West-Europa (Windows "ANSI")
+            'iso-8859-15', # Latin-9 (mit Euro-Zeichen)
+            locale.getpreferredencoding(False)
+        ]
+        # Duplikate entfernen und sortieren
+        unique_encodings = sorted(list(set(enc for enc in encodings_to_offer if enc)))
+        for enc in unique_encodings:
+            display_label = enc.upper()
+            if self.last_detected_encoding and enc.lower() == self.last_detected_encoding.lower():
+                display_label += f" ({self.tr('detected')})"
+            self.encoding_menu.add_command(label=display_label, command=lambda e=enc: self.force_reload_with_encoding(e))
+
+    def force_reload_with_encoding(self, encoding):
+        if self.current_file: self.load_file(self.current_file, scroll_to_end=False, force_encoding=encoding)
+
+    def clear_cursor_position_display(self, event=None):
+        self.status_cursor_label.config(text="")
+
+    def update_cursor_position_display(self, event=None):
+        if not self.current_file:
+            self.status_cursor_label.config(text="")
+            return
+        try:
+            line, col = self.text_area.index(tk.INSERT).split('.')
+            self.status_cursor_label.config(text=f"{self.tr('line')}: {line}, {self.tr('column')}: {int(col) + 1}")
+        except Exception:
+            self.status_cursor_label.config(text="")
+
+    def update_relative_time(self):
+        if self.current_file_mtime:
+            absolute_time = datetime.fromtimestamp(self.current_file_mtime).strftime('%d.%m.%Y %H:%M:%S')
+            relative_time = self.get_relative_time_string(self.current_file_mtime)
+            mtime_str = f"{absolute_time} ({relative_time})"
+            self.status_mtime_label.config(text=f"{self.tr('modified')}: {mtime_str}")
+        
+        self.root.after(1000, self.update_relative_time)
 
     def rebuild_extension_checkboxes(self):
         self.ext_menu.delete(0, tk.END)
@@ -621,14 +739,91 @@ class LogViewerApp:
             v = self.tree.item(sel[0], "values")
             if v and self.current_file != v[0]: self.current_file = v[0]; self.last_mtime = os.path.getmtime(v[0]); self.load_file(v[0])
 
-    def load_file(self, path, scroll_to_end=False):
+    def load_file(self, path, scroll_to_end=False, force_encoding=None, is_recovery_load=False):
+        content = ""
+        file_info = {"encoding": "N/A", "size": None, "lines": None, "mtime": None}
+
         try:
-            with open(path, 'r', encoding='utf-8', errors='replace') as f: content = f.read()
-            curr_y = self.text_area.yview()[0]; self.text_area.delete("1.0", tk.END); self.text_area.insert(tk.END, content); self.apply_log_highlighting()
+            # Wenn der Benutzer die ursprünglich erkannte Kodierung erneut auswählt,
+            # behandeln wir dies wie eine automatische Erkennung, um den "(ausgewählt)"-Zusatz zu entfernen.
+            if force_encoding and self.last_detected_encoding and force_encoding.lower() == self.last_detected_encoding.lower():
+                force_encoding = None
+
+            file_info["size"] = os.path.getsize(path)
+            file_info["mtime"] = os.path.getmtime(path)
+            display_str = "N/A"
+            actual_encoding = None
+
+            if force_encoding:
+                actual_encoding = force_encoding
+                display_name = force_encoding.upper()
+                if display_name == 'CP1252':
+                    display_name = 'CP1252 (ANSI)'
+                display_str = f"{display_name} ({self.tr('manual')})"
+                with open(path, 'r', encoding=actual_encoding, errors='replace') as f:
+                    content = f.read()
+            else:
+                # Automatische Erkennung
+                with open(path, 'rb') as f: bom = f.read(4)
+                
+                detected_bom_encoding = None
+                if bom.startswith(b'\xff\xfe'): detected_bom_encoding = 'utf-16-le'
+                elif bom.startswith(b'\xfe\xff'): detected_bom_encoding = 'utf-16-be'
+                elif bom.startswith(b'\xef\xbb\xbf'): detected_bom_encoding = 'utf-8-sig'
+    
+                if detected_bom_encoding:
+                    actual_encoding = detected_bom_encoding
+                    display_str = actual_encoding.upper()
+                    with open(path, 'r', encoding=actual_encoding, errors='replace') as f:
+                        content = f.read()
+                else:
+                    try:
+                        with open(path, 'r', encoding='utf-8') as f: content = f.read()
+                        actual_encoding = 'utf-8'
+                        display_str = 'UTF-8'
+                    except UnicodeDecodeError:
+                        system_encoding = locale.getpreferredencoding(False)
+                        with open(path, 'r', encoding=system_encoding, errors='replace') as f: content = f.read()
+                        actual_encoding = system_encoding
+                        display_str = system_encoding.upper()
+                        if display_str == 'CP1252':
+                            display_str = 'CP1252 (ANSI)'
+                
+                self.last_detected_encoding = actual_encoding
+            
+            file_info["encoding"] = display_str
+            file_info["lines"] = len(content.splitlines())
+
+            # --- UI aktualisieren ---
+            curr_y = self.text_area.yview()[0]
+            self.text_area.delete("1.0", tk.END)
+            self.text_area.insert(tk.END, content)
+            self.apply_log_highlighting()
+
+            self.build_encoding_menu()
+            self.update_status_bar(**file_info)
+
             if scroll_to_end or self.auto_scroll_active.get(): self.text_area.see(tk.END)
             else: self.text_area.yview_moveto(curr_y)
+
+            # Wenn der Ladevorgang erfolgreich war, speichern wir die verwendete Kodierung.
+            # Dies überschreiben wir nicht bei einem Wiederherstellungs-Laden.
+            if not is_recovery_load:
+                self.current_file_encoding = actual_encoding
+
         except Exception as e:
+            # Fehler dem Benutzer anzeigen
             if not scroll_to_end: messagebox.showerror(self.tr("error"), str(e))
+
+            # Wenn ein manueller Ladeversuch fehlschlug, versuchen wir, mit der letzten
+            # funktionierenden Kodierung wiederherzustellen.
+            if force_encoding and not is_recovery_load and self.current_file_encoding:
+                self.load_file(path, scroll_to_end=False, force_encoding=self.current_file_encoding, is_recovery_load=True)
+            else:
+                # Wenn die Wiederherstellung fehlschlägt oder nicht anwendbar ist, UI zurücksetzen.
+                self.last_detected_encoding = None; self.build_encoding_menu()
+                self.update_status_bar()
+                self.text_area.delete("1.0", tk.END)
 
     def check_for_file_updates(self):
         if self.current_file and self.live_view_active.get():
@@ -638,6 +833,78 @@ class LogViewerApp:
                     self.last_mtime = m; self.load_file(self.current_file, True)
             except OSError: pass
         self.root.after(500, self.check_for_file_updates)
+
+    def get_relative_time_string(self, timestamp):
+        """Erzeugt einen relativen Zeit-String (z.B. 'vor 5 Minuten')."""
+        now = datetime.now()
+        dt_object = datetime.fromtimestamp(timestamp)
+        delta = now - dt_object
+        seconds = delta.total_seconds()
+
+        # Deutsche Grammatik: "vor 5 Tagen"
+        if self.lang == 'de':
+            if seconds < 60: val = int(seconds); unit = self.tr("second") if val == 1 else self.tr("seconds"); return f"{self.tr('time_ago')} {val} {unit}"
+            elif seconds < 3600: val = int(seconds / 60); unit = self.tr("minute") if val == 1 else self.tr("minutes"); return f"{self.tr('time_ago')} {val} {unit}"
+            elif seconds < 86400: val = int(seconds / 3600); unit = self.tr("hour") if val == 1 else self.tr("hours"); return f"{self.tr('time_ago')} {val} {unit}"
+            elif seconds < 2592000: val = int(seconds / 86400); unit = self.tr("day") if val == 1 else self.tr("days"); return f"{self.tr('time_ago')} {val} {unit}"
+            elif seconds < 31536000: val = int(seconds / 2592000); unit = self.tr("month") if val == 1 else self.tr("months"); return f"{self.tr('time_ago')} {val} {unit}"
+            else: val = int(seconds / 31536000); unit = self.tr("year") if val == 1 else self.tr("years"); return f"{self.tr('time_ago')} {val} {unit}"
+        # Englische Grammatik: "5 days ago"
+        else:
+            if seconds < 60: val = int(seconds); unit = self.tr("second") if val == 1 else self.tr("seconds"); return f"{val} {unit} {self.tr('time_ago')}"
+            elif seconds < 3600: val = int(seconds / 60); unit = self.tr("minute") if val == 1 else self.tr("minutes"); return f"{val} {unit} {self.tr('time_ago')}"
+            elif seconds < 86400: val = int(seconds / 3600); unit = self.tr("hour") if val == 1 else self.tr("hours"); return f"{val} {unit} {self.tr('time_ago')}"
+            elif seconds < 2592000: val = int(seconds / 86400); unit = self.tr("day") if val == 1 else self.tr("days"); return f"{val} {unit} {self.tr('time_ago')}"
+            elif seconds < 31536000: val = int(seconds / 2592000); unit = self.tr("month") if val == 1 else self.tr("months"); return f"{val} {unit} {self.tr('time_ago')}"
+            else: val = int(seconds / 31536000); unit = self.tr("year") if val == 1 else self.tr("years"); return f"{val} {unit} {self.tr('time_ago')}"
+
+    def update_status_bar(self, encoding=None, size=None, lines=None, mtime=None):
+        """Aktualisiert die Statusleiste dynamisch. Leere Felder werden ausgeblendet."""
+        self.current_file_mtime = mtime
+
+        # Alle Widgets der Statusleiste entfernen, um sie neu aufzubauen
+        for widget in self.status_bar.winfo_children():
+            widget.pack_forget()
+
+        # --- Linke Seite ---
+        if encoding:
+            self.encoding_menubutton.config(text=f"{encoding} ▲", state=tk.NORMAL)
+            self.encoding_menubutton.pack(side=tk.LEFT, padx=(5, 5))
+
+        # --- Rechte Seite (von rechts nach links packen) ---
+        is_right_side_visible = False
+
+        # Zeitstempel
+        if mtime is not None:
+            self.status_mtime_label.pack(side=tk.RIGHT, padx=(5, 10))
+            is_right_side_visible = True
+
+        # Cursor-Position
+        if lines is not None:
+            if is_right_side_visible: self.mtime_sep.pack(side=tk.RIGHT, fill='y', padx=5)
+            self.status_cursor_label.pack(side=tk.RIGHT, padx=5)
+            is_right_side_visible = True
+
+        # Zeilenanzahl
+        if lines is not None:
+            if is_right_side_visible: self.cursor_sep.pack(side=tk.RIGHT, fill='y', padx=5)
+            self.status_lines_label.config(text=f"{self.tr('lines')}: {f'{lines:,}'.replace(',', '.')}")
+            self.status_lines_label.pack(side=tk.RIGHT, padx=5)
+            is_right_side_visible = True
+
+        # Dateigröße
+        if size is not None:
+            if is_right_side_visible: self.lines_sep.pack(side=tk.RIGHT, fill='y', padx=5)
+            if size < 1024: size_str = f"{size} B"
+            elif size < 1024**2: size_str = f"{size/1024:.1f} KB"
+            else: size_str = f"{size/1024**2:.2f} MB"
+            self.status_size_label.config(text=f"{self.tr('size')}: {size_str}")
+            self.status_size_label.pack(side=tk.RIGHT, padx=5)
+            is_right_side_visible = True
+
+        # Separator zwischen linker und rechter Seite
+        if encoding and is_right_side_visible:
+            self.size_sep.pack(side=tk.LEFT, fill='y', padx=5)
 
     def check_for_new_release(self, manual_check=False):
         """Starts a background thread to check for a new release on GitHub."""
