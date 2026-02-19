@@ -187,7 +187,7 @@ class LogViewerApp:
             {"name": "WARNING", "fg": "black", "bg": "orange", "aliases": ["WARNING", "WARN", "ATTENTION", "CAUTION", "VORSICHT"]},
             {"name": "INFO", "fg": "white", "bg": "blue", "aliases": ["INFO", "INFORMATION", "LOG", "MSG", "MESSAGE", "HINWEIS"]},
             {"name": "SUCCESS", "fg": "white", "bg": "green", "aliases": ["SUCCESS", "OK", "DONE", "COMPLETED", "FINISHED", "PASSED", "ERFOLG"]},
-            {"name": "DEBUG", "fg": "black", "bg": "gray", "aliases": ["DEBUG", "TRACE", "VERBOSE"]}
+            {"name": "DEBUG", "fg": "gray", "bg": None, "aliases": ["DEBUG", "TRACE", "VERBOSE"]}
         ]
 
         # Statusvariablen
@@ -535,15 +535,25 @@ class LogViewerApp:
 
     def rebuild_filter_buttons(self):
         for widget in self.filter_bar.winfo_children(): widget.destroy()
+        # Standard-Hintergrundfarbe des Frames für transparente Regeln abrufen
+        default_bg = self.root.cget("background")
         for rule in self.log_rules:
             name = rule["name"]
-            cb = tk.Checkbutton(self.filter_bar, text=name, variable=self.filter_vars[name], command=self.on_filter_toggle, bg=rule["bg"], fg=rule["fg"], selectcolor=rule["bg"], activebackground=rule["bg"], activeforeground=rule["fg"], padx=5)
+            # Standardhintergrund verwenden, wenn für die Regel keiner festgelegt ist (None)
+            bg_color = rule.get("bg") or default_bg
+            fg_color = rule.get("fg")
+            cb = tk.Checkbutton(self.filter_bar, text=name, variable=self.filter_vars[name], command=self.on_filter_toggle, bg=bg_color, fg=fg_color, selectcolor=bg_color, activebackground=bg_color, activeforeground=fg_color, padx=5)
             cb.pack(side=tk.LEFT, padx=3)
 
     def update_text_tags(self):
         for tag in self.text_area.tag_names():
             if tag not in ["search_match", "sel"]: self.text_area.tag_delete(tag)
-        for rule in self.log_rules: self.text_area.tag_configure(rule["name"], foreground=rule["fg"], background=rule["bg"])
+        for rule in self.log_rules:
+            # .get() für 'bg' verwenden und eine leere Zeichenfolge für Transparenz bereitstellen
+            self.text_area.tag_configure(rule["name"], foreground=rule.get("fg"), background=rule.get("bg") or "")
+        # Stellt sicher, dass die Textauswahl (sel) immer über den Hintergrundfarben
+        # der Regeln gezeichnet wird, um sichtbar zu bleiben.
+        self.text_area.tag_raise("sel")
 
     def on_filter_toggle(self):
         self.settings_modified = True; self.save_settings(); self.apply_log_highlighting()
@@ -617,25 +627,52 @@ class LogViewerApp:
         selection = self.rules_listbox.curselection()
         if edit and not selection: return
         idx = selection[0] if edit else None
-        rule_data = self.log_rules[idx].copy() if edit else {"name": "", "fg": "black", "bg": "white", "aliases": []}
+        # 'bg' standardmäßig auf None setzen, um Transparenz darzustellen
+        rule_data = self.log_rules[idx].copy() if edit else {"name": "", "fg": "black", "bg": None, "aliases": []}
+        
         editor_win = tk.Toplevel(parent); editor_win.title(self.tr("rule_editor")); editor_win.geometry("450x400"); editor_win.grab_set()
         content = ttk.Frame(editor_win, padding=15); content.pack(fill=tk.BOTH, expand=True)
+        
         ttk.Label(content, text=self.tr("name")).pack(anchor="w"); name_entry = ttk.Entry(content)
         name_entry.pack(fill=tk.X, pady=(0, 10)); name_entry.insert(0, rule_data["name"])
+        
         ttk.Label(content, text=self.tr("terms")).pack(anchor="w"); alias_entry = ttk.Entry(content)
         alias_entry.pack(fill=tk.X, pady=(0, 10)); alias_entry.insert(0, ", ".join(rule_data["aliases"]))
-        fg_c, bg_c = rule_data["fg"], rule_data["bg"]
+        
+        # .get() verwenden, um sicher auf 'bg' zuzugreifen
+        fg_c, bg_c = rule_data["fg"], rule_data.get("bg")
+
         def pick(m):
             nonlocal fg_c, bg_c
-            c = colorchooser.askcolor(initialcolor=(fg_c if m == "fg" else bg_c))[1]
+            initial = fg_c if m == "fg" else bg_c
+            c = colorchooser.askcolor(initialcolor=initial)[1]
             if c:
                 if m == "fg": fg_c = c; fg_p.config(bg=c)
                 else: bg_c = c; bg_p.config(bg=c)
+
+        def clear_bg():
+            nonlocal bg_c
+            bg_c = None
+            # Den Standardhintergrund des Fensters für die Vorschau verwenden
+            bg_p.config(bg=editor_win.cget('bg'))
+
         f_frame = ttk.Frame(content); f_frame.pack(fill=tk.X, pady=10)
+        
+        # Vordergrund
         fg_col = ttk.Frame(f_frame); fg_col.pack(side=tk.LEFT, expand=True)
-        ttk.Label(fg_col, text=self.tr("text_color")).pack(); fg_p = tk.Label(fg_col, width=12, bg=fg_c, relief="ridge"); fg_p.pack(pady=2); ttk.Button(fg_col, text="...", command=lambda: pick("fg")).pack()
+        ttk.Label(fg_col, text=self.tr("text_color")).pack()
+        fg_p = tk.Label(fg_col, width=12, bg=fg_c, relief="ridge"); fg_p.pack(pady=2)
+        ttk.Button(fg_col, text=self.tr("select"), command=lambda: pick("fg")).pack()
+        
+        # Hintergrund
         bg_col = ttk.Frame(f_frame); bg_col.pack(side=tk.LEFT, expand=True)
-        ttk.Label(bg_col, text=self.tr("bg_color")).pack(); bg_p = tk.Label(bg_col, width=12, bg=bg_c, relief="ridge"); bg_p.pack(pady=2); ttk.Button(bg_col, text="...", command=lambda: pick("bg")).pack()
+        ttk.Label(bg_col, text=self.tr("bg_color")).pack()
+        preview_bg = bg_c if bg_c is not None else editor_win.cget('bg')
+        bg_p = tk.Label(bg_col, width=12, bg=preview_bg, relief="ridge"); bg_p.pack(pady=2)
+        bg_btn_frame = ttk.Frame(bg_col); bg_btn_frame.pack()
+        ttk.Button(bg_btn_frame, text=self.tr("select"), command=lambda: pick("bg")).pack(side=tk.LEFT)
+        ttk.Button(bg_btn_frame, text="Ø", command=clear_bg, width=3).pack(side=tk.LEFT, padx=5)
+
         def save():
             name = name_entry.get().strip()
             if not name: return
