@@ -9,21 +9,21 @@ import webbrowser
 import threading
 from datetime import datetime
 
-# Für das Taskleisten-Icon unter Windows
+    
 try:
     import ctypes
 except ImportError:
     ctypes = None
 
 class LogViewerApp:
-    APP_VERSION = "0.4.0"  # Manuell gepflegte Anwendungsversion
+    APP_VERSION = "0.4.0"
     SETTINGS_FILE = "log_viewer_settings.json"
     ICON_FILE = "icon.ico"
 
     def __init__(self, root):
         self.root = root
         
-        # Lokalisierung (Fest im Code integriert, keine externen Files)
+        # Lokalisierung
         self.translations = {
             "de": {
                 "title": "Log Viewer",
@@ -245,16 +245,27 @@ class LogViewerApp:
 
     def get_resource_path(self, relative_path):
         """Gibt den Pfad zu einer Ressource zurück (funktioniert für Skript und EXE)."""
-        if hasattr(sys, '_MEIPASS'):
-            # PyInstaller entpackt Dateien in diesen temporären Ordner
-            return os.path.join(sys._MEIPASS, relative_path)
-        return os.path.join(os.path.abspath("."), relative_path)
+        try:
+            # PyInstaller erstellt einen temporären Ordner und speichert den Pfad in _MEIPASS
+            base_path = sys._MEIPASS
+        except Exception:
+            # Fallback für andere Bundler und normale Skriptausführung
+            if getattr(sys, 'frozen', False):
+                # Pfad für eine gebündelte Anwendung
+                base_path = os.path.dirname(sys.executable)
+            else:
+                # Pfad für ein normales Skript
+                base_path = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base_path, relative_path)
 
     def get_app_dir(self):
         """Gibt das Verzeichnis zurück, in dem die EXE/das Skript liegt (für JSON)."""
+        # Bei einer gebündelten App (z.B. mit PyInstaller) sollte `sys.argv[0]`
+        # den Pfad zur ursprünglichen EXE-Datei enthalten. Dies ermöglicht es,
+        # die Konfigurationsdatei im selben Verzeichnis zu speichern.
         if getattr(sys, 'frozen', False):
-            return os.path.dirname(sys.executable)
-        return os.path.dirname(os.path.abspath(__file__))
+            return os.path.dirname(os.path.abspath(sys.argv[0]))
+        return os.path.dirname(os.path.abspath(__file__))  # Fallback für normale Skriptausführung
 
     def set_app_icon(self):
         """Lädt das Icon aus dem PyInstaller-Speicher."""
@@ -744,8 +755,6 @@ class LogViewerApp:
         file_info = {"encoding": "N/A", "size": None, "lines": None, "mtime": None}
 
         try:
-            # Wenn der Benutzer die ursprünglich erkannte Kodierung erneut auswählt,
-            # behandeln wir dies wie eine automatische Erkennung, um den "(ausgewählt)"-Zusatz zu entfernen.
             if force_encoding and self.last_detected_encoding and force_encoding.lower() == self.last_detected_encoding.lower():
                 force_encoding = None
 
@@ -806,8 +815,6 @@ class LogViewerApp:
             if scroll_to_end or self.auto_scroll_active.get(): self.text_area.see(tk.END)
             else: self.text_area.yview_moveto(curr_y)
 
-            # Wenn der Ladevorgang erfolgreich war, speichern wir die verwendete Kodierung.
-            # Dies überschreiben wir nicht bei einem Wiederherstellungs-Laden.
             if not is_recovery_load:
                 self.current_file_encoding = actual_encoding
 

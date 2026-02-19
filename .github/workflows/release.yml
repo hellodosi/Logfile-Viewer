@@ -1,6 +1,6 @@
-# GitHub Action: Release bei Änderung der Versionsnummer in der Anwendung
+# GitHub Action: Manuelles Erstellen eines Releases
 #
-# Dieser Workflow wird bei einem Push auf den 'main'-Branch ausgelöst.
+# Dieser Workflow wird manuell über die GitHub-Oberfläche oder VS Code gestartet.
 # 1. Job 'tag-release': Liest die Versionsnummer aus 'logviewer.py'.
 #    Wenn für diese Version noch kein Git-Tag existiert, wird er erstellt.
 # 2. Job 'build-and-release': Startet nur, wenn ein neuer Tag erstellt wurde.
@@ -8,9 +8,7 @@
 name: Release on Version Change
 
 on:
-  push:
-    branches:
-      - main # oder master, je nach deinem Repository
+  workflow_dispatch: # Ermöglicht das manuelle Starten des Workflows
 
 jobs:
   # Job 1: Version aus der Datei lesen und Git-Tag erstellen
