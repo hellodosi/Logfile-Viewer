@@ -75,6 +75,11 @@ class LogViewerApp:
                 "delete_confirm": "Regel wirklich löschen?",
                 "no_ext_warn": "Die Option '(keine Endung)' ist ein fester Bestandteil und kann nicht gelöscht werden.",
                 "copyright": "Copyright © Dominik Scharrer",
+                "tab_appearance": "Darstellung",
+                "font_family": "Schriftart",
+                "font_size": "Schriftgröße",
+                "preview": "Vorschau",
+                "restore_defaults": "Standard wiederherstellen",
                 "help_text": "Bedienung:\n\n1. Baumansicht: Filtert und sortiert Logdateien.\n2. Einstellungen: Verwalten Sie Dateiendungen und farbliche Regeln.\n3. Priorität: Obere Regeln in der Liste haben Vorrang.\n4. Live View: Echtzeit-Analyse mit manuellem Scroll-Stopp.\n5. Auto-Scroll: Pausiert automatisch beim Hochscrollen.",
                 "update_title": "Update verfügbar",
                 "update_available": "Eine neue Version ({version}) ist verfügbar!\n\nMöchten Sie die Download-Seite öffnen?",
@@ -152,6 +157,11 @@ class LogViewerApp:
                 "delete_confirm": "Delete this rule?",
                 "no_ext_warn": "The option '(no extension)' is a permanent feature and cannot be deleted.",
                 "copyright": "Copyright © Dominik Scharrer",
+                "tab_appearance": "Appearance",
+                "font_family": "Font Family",
+                "font_size": "Font Size",
+                "preview": "Preview",
+                "restore_defaults": "Restore Defaults",
                 "help_text": "Operation:\n\n1. Tree View: Filter and sort log files.\n2. Settings: Manage extensions and color rules.\n3. Priority: Rules at the top of the list take precedence.\n4. Live View: Real-time analysis with manual scroll stop.\n5. Auto-Scroll: Pauses automatically when scrolling up.",
                 "update_title": "Update Available",
                 "update_available": "A new version ({version}) is available!\nDo you want to open the download page?",
@@ -190,6 +200,13 @@ class LogViewerApp:
             {"name": "DEBUG", "fg": "gray", "bg": None, "aliases": ["DEBUG", "TRACE", "VERBOSE"]}
         ]
 
+        # Standard-Darstellung
+        self.default_appearance = {
+            "font_family": "Consolas",
+            "font_size": 10,
+            "text_bg": "#FFFFFF",
+            "text_fg": "#000000"
+        }
         # Statusvariablen
         self.live_view_active = tk.BooleanVar(value=False)
         self.auto_scroll_active = tk.BooleanVar(value=False)
@@ -294,7 +311,8 @@ class LogViewerApp:
             "sort_mode": "Name (A-Z)",
             "language": self.lang,
             "word_wrap": False,
-            "check_for_updates_on_startup": True
+            "check_for_updates_on_startup": True,
+            "appearance": self.default_appearance.copy()
         }
 
         settings_path = os.path.join(app_dir, self.SETTINGS_FILE)
@@ -318,6 +336,7 @@ class LogViewerApp:
         self.lang = loaded_data.get("language", defaults["language"])
         self.word_wrap_active.set(loaded_data.get("word_wrap", defaults["word_wrap"]))
         self.check_updates_on_startup_var = tk.BooleanVar(value=loaded_data.get("check_for_updates_on_startup", defaults["check_for_updates_on_startup"]))
+        self.appearance_settings = loaded_data.get("appearance", defaults["appearance"])
 
         if "" not in self.allowed_extensions:
             self.allowed_extensions.append("")
@@ -350,7 +369,8 @@ class LogViewerApp:
             "sort_mode": self.sort_var.get(),
             "language": self.lang,
             "word_wrap": self.word_wrap_active.get(),
-            "check_for_updates_on_startup": self.check_updates_on_startup_var.get()
+            "check_for_updates_on_startup": self.check_updates_on_startup_var.get(),
+            "appearance": self.appearance_settings
         }
         try:
             settings_path = os.path.join(self.get_app_dir(), self.SETTINGS_FILE)
@@ -425,7 +445,12 @@ class LogViewerApp:
         self.rebuild_filter_buttons()
 
         initial_wrap = tk.WORD if self.word_wrap_active.get() else tk.NONE
-        self.text_area = scrolledtext.ScrolledText(self.main_frame, wrap=initial_wrap, undo=True, font=("Consolas", 10))
+        self.text_area = scrolledtext.ScrolledText(self.main_frame, wrap=initial_wrap, undo=True)
+        self.apply_appearance_settings() # Wendet Schriftart und Farben an
+
+        # self.text_area = scrolledtext.ScrolledText(self.main_frame, wrap=initial_wrap, undo=True, font=("Consolas", 10))
+
+
         self.text_area.pack(fill=tk.BOTH, expand=True); self.update_text_tags()
         self.text_area.tag_configure("search_match", background="yellow", foreground="black")
         self.text_area.bind("<MouseWheel>", self.detect_manual_scroll)
@@ -455,6 +480,14 @@ class LogViewerApp:
 
         # Initialen Status der Statusleiste setzen
         self.update_status_bar()
+
+    def apply_appearance_settings(self):
+        """Wendet die aktuellen Darstellungseinstellungen auf das Haupt-Textfeld an."""
+        self.text_area.config(
+            font=(self.appearance_settings['font_family'], self.appearance_settings['font_size']),
+            background=self.appearance_settings['text_bg'],
+            foreground=self.appearance_settings['text_fg']
+        )
 
     def on_sort_change(self, _):
         self.settings_modified = True; self.refresh_file_tree()
@@ -597,9 +630,72 @@ class LogViewerApp:
         update_frame = ttk.LabelFrame(updates_tab, text=self.tr("tab_updates"), padding=10); update_frame.pack(fill=tk.X, padx=10, pady=5)
         ttk.Checkbutton(update_frame, text=self.tr("check_updates_on_startup"), variable=self.check_updates_on_startup_var).pack(anchor="w", pady=(0, 10))
         ttk.Button(update_frame, text=self.tr("check_for_updates"), command=lambda: self.check_for_new_release(manual_check=True)).pack(anchor="w")
+
+        # Tab 4: Darstellung
+        appearance_tab = ttk.Frame(nb); nb.add(appearance_tab, text=self.tr("tab_appearance"))
+        appearance_content = ttk.Frame(appearance_tab, padding=10); appearance_content.pack(fill=tk.BOTH, expand=True)
         
+        temp_appearance = self.appearance_settings.copy()
+        
+        controls_frame = ttk.LabelFrame(appearance_content, text=self.tr("settings"), padding=10)
+        controls_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        font_family_var = tk.StringVar(value=temp_appearance['font_family'])
+        font_size_var = tk.IntVar(value=temp_appearance['font_size'])
+
+        preview_frame = ttk.LabelFrame(appearance_content, text=self.tr("preview"), padding=10)
+        preview_frame.pack(fill=tk.BOTH, expand=True)
+        preview_text = scrolledtext.ScrolledText(preview_frame, height=5, wrap=tk.NONE)
+        preview_text.pack(fill=tk.BOTH, expand=True)
+        preview_text.insert(tk.END, "INFO: This is a preview.\n")
+        preview_text.insert(tk.END, "ERROR: You can see your changes here.\n")
+        preview_text.insert(tk.END, "12345 abcde ABCDE !@#$%")
+        preview_text.config(state=tk.DISABLED)
+
+        def update_preview():
+            temp_appearance['font_family'] = font_family_var.get()
+            temp_appearance['font_size'] = font_size_var.get()
+            preview_text.config(state=tk.NORMAL)
+            preview_text.config(font=(temp_appearance['font_family'], temp_appearance['font_size']), 
+                                background=temp_appearance['text_bg'], foreground=temp_appearance['text_fg'])
+            preview_text.config(state=tk.DISABLED)
+
+        def pick_color(color_type):
+            initial_color = temp_appearance[color_type]
+            color_code = colorchooser.askcolor(title=f"Choose {color_type}", initialcolor=initial_color)[1]
+            if color_code:
+                temp_appearance[color_type] = color_code
+                (bg_preview if color_type == 'text_bg' else fg_preview).config(bg=color_code)
+                update_preview()
+
+        def restore_defaults():
+            temp_appearance.update(self.default_appearance)
+            font_family_var.set(temp_appearance['font_family'])
+            font_size_var.set(temp_appearance['font_size'])
+            bg_preview.config(bg=temp_appearance['text_bg'])
+            fg_preview.config(bg=temp_appearance['text_fg'])
+            update_preview()
+
+        ff_frame = ttk.Frame(controls_frame); ff_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(ff_frame, text=self.tr("font_family"), width=12).pack(side=tk.LEFT)
+        common_fonts = ["Consolas", "Courier New", "Lucida Console", "Fira Code", "Source Code Pro", "Menlo", "Monaco", "DejaVu Sans Mono"]
+        font_combo = ttk.Combobox(ff_frame, textvariable=font_family_var, values=common_fonts, state="readonly"); font_combo.pack(fill=tk.X, expand=True); font_combo.bind("<<ComboboxSelected>>", lambda e: update_preview())
+
+        fs_frame = ttk.Frame(controls_frame); fs_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(fs_frame, text=self.tr("font_size"), width=12).pack(side=tk.LEFT)
+        size_spinbox = ttk.Spinbox(fs_frame, from_=8, to=32, textvariable=font_size_var, width=5, command=update_preview); size_spinbox.pack()
+
+        bg_frame = ttk.Frame(controls_frame); bg_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(bg_frame, text=self.tr("bg_color"), width=12).pack(side=tk.LEFT); bg_preview = tk.Label(bg_frame, width=4, relief="ridge", bg=temp_appearance['text_bg']); bg_preview.pack(side=tk.LEFT, padx=5); ttk.Button(bg_frame, text=self.tr("select"), command=lambda: pick_color('text_bg')).pack(side=tk.LEFT)
+
+        fg_frame = ttk.Frame(controls_frame); fg_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(fg_frame, text=self.tr("text_color"), width=12).pack(side=tk.LEFT); fg_preview = tk.Label(fg_frame, width=4, relief="ridge", bg=temp_appearance['text_fg']); fg_preview.pack(side=tk.LEFT, padx=5); ttk.Button(fg_frame, text=self.tr("select"), command=lambda: pick_color('text_fg')).pack(side=tk.LEFT)
+
+        ttk.Button(controls_frame, text=self.tr("restore_defaults"), command=restore_defaults).pack(pady=(10,0))
+        update_preview()
+
         footer = ttk.Frame(settings_win, padding=10); footer.pack(fill=tk.X)
-        def save_and_close(): self.settings_modified = True; self.save_settings(); settings_win.destroy()
+        def save_and_close(): self.appearance_settings = temp_appearance.copy(); self.apply_appearance_settings(); self.settings_modified = True; self.save_settings(force=True); settings_win.destroy()
         ttk.Button(footer, text=self.tr("save_close"), command=save_and_close).pack(side=tk.RIGHT)
 
     def add_extension(self):
